@@ -1,0 +1,24 @@
+# Go
+/bin/
+/build/
+*.exe
+*.test
+*.prof
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+
+# App artifacts
+*.db
+*.duckdb
+*.qdb
+
+# Packaging
+dist/
+tmp/
