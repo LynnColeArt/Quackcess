@@ -27,8 +27,10 @@ Quackcess needs two things that affect long-term architecture:
 - Do not add additional chart runtimes in v1 beyond Mermaid and Vega-Lite.
 
 ### 3) Vector provider model
-- No hardcoded default vector provider in v1.
-- Require explicit local provider config (for example: local model runner wrapping `qwen3.5-0.8b`, Ollama, or equivalent).
+- Default to a CPU-first local vector profile for v1 (`qwen-cpu` with `qwen3-embedding-0.6b`) when env vars are not provided.
+- Keep env overrides (`QUACKCESS_VECTOR_BACKEND`, `QUACKCESS_VECTOR_ENDPOINT`, `QUACKCESS_VECTOR_PROVIDER`, `QUACKCESS_VECTOR_MODEL`, `QUACKCESS_VECTOR_CPU_SEED`) supported for easy provider swapping.
+- CPU provider defaults are immediate and deterministic; backend `QUACKCESS_VECTOR_BACKEND=llama`/`llamacpp` maps to a local HTTP-compatible default profile (`qwen-cpp` + `qwen3-embedding-0.6b`) and defaults endpoint to `127.0.0.1:8080/v1/embeddings`.
+- HTTP providers can be explicitly enabled with `QUACKCESS_VECTOR_BACKEND=http` for remote/local OpenAI-compatible endpoints (`qwen-local` + `qwen3.5-0.8b` default).
 
 ### 4) Platform and identity
 - Target OS: **Linux + macOS**.

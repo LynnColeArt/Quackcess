@@ -19,10 +19,12 @@ func TestManifestCurrentVersion(t *testing.T) {
 
 func TestManifestValidationSuccess(t *testing.T) {
 	m := Manifest{
-		Format:      "quackcess.qdb",
-		Version:     CurrentSchemaVersion(),
-		ProjectName: "demo",
-		DataFile:    "data.duckdb",
+		Format:       "quackcess.qdb",
+		Version:      CurrentSchemaVersion(),
+		ProjectName:  "demo",
+		CreatedBy:    "tester",
+		DataFile:     "data.duckdb",
+		ArtifactRoot: "artifacts/",
 	}
 	if err := ValidateManifest(m); err != nil {
 		t.Fatalf("unexpected validation error: %v", err)

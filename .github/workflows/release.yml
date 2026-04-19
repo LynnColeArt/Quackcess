@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-packages:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '^1.25.0'
+      - name: Build and package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          BINARY_NAME="quackcess-${VERSION}-${GOOS}-${GOARCH}"
+          ARCHIVE_NAME="${BINARY_NAME}.tar.gz"
+          CHECKSUM_NAME="${ARCHIVE_NAME}.sha256"
+          mkdir -p dist
+          go build -o "dist/${BINARY_NAME}" ./cmd/quackcess
+          tar -czf "dist/${ARCHIVE_NAME}" -C dist "$BINARY_NAME"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "dist/${ARCHIVE_NAME}" > "dist/${CHECKSUM_NAME}"
+          else
+            shasum -a 256 "dist/${ARCHIVE_NAME}" > "dist/${CHECKSUM_NAME}"
+          fi
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quackcess-release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+  publish-release:
+    needs: build-packages
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: quackcess-release-*
+          path: dist
+          merge-multiple: true
+      - name: Stage release assets
+        run: |
+          mkdir -p release
+          find dist -type f -name 'quackcess-*.tar.gz' -exec cp {} release/ \;
+          find dist -type f -name 'quackcess-*.sha256' -exec cp {} release/ \;
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*

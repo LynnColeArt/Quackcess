@@ -171,28 +171,193 @@ Tasks:
    - SQL preview
    - results grid
 3. Add command bus and state store bindings.
-4. Implement progress/error/loading states.
-5. Introduce keyboard shortcuts and context actions.
+4. Add UI shell projection model for renderer-facing state (`internal/ui/shell`).
+5. Implement progress/error/loading states.
+6. Introduce keyboard shortcuts and context actions.
+7. Add GTK bridge seam (`internal/ui/gtk`) for terminal submit + F12 shortcut dispatch.
+8. Add terminal command service contracts:
+   - execute SQL from terminal input
+   - show query/error results
+   - expose `\history` and in-app command hints
+   - toggle event console with F12
 
 Tests first:
 - `state_transition_contract_test`
 - `command_bus_contract_test`
 - `ui_model_projection_contract_test`
+- `shell_bridge_contract_test`
+- `shell_window_contract_test`
+- `terminal_contract_test`
+- `event_console_contract_test`
+
+Phase 4 status: complete for core shell interactions.
+
+- Completed:
+  - UI projection model, command bus wiring, terminal result formatting
+  - explorer/main/workspace shell layout
+  - live catalog browsing in shell explorer projection (tables/views/canvases)
+  - canvas viewport scaffold and explorer interactions (table/view open actions)
+  - terminal-level `\canvas <name>` execution path used by canvas explorer actions
+  - F12 console toggle wiring
+  - CLI-open headless fallback behavior
+- Remaining:
+  - full drag/select/canvas edit interactions in the canvas editor (now moving into Phase 5)
 
 ### Phase 5 — Canvas editor and visual workflows
 
 Goal: visual drag-and-drop query/table canvases.
 
+Phase 5 is now split into executable blocks we can complete in order:
+
+#### 5.0 — Canvas editability foundation (domain first)
+
 Tasks:
-1. Build canvas document model (position, selection, connections, semantic tags).
-2. Implement canvas save/load against catalog artifact tables.
-3. Add drag/drop operations for tables/fields/edges.
-4. Wire SQL preview updates from canvas changes.
+1. Expand the canvas artifact model beyond raw JSON by adding an explicit in-memory document model:
+   - `CanvasDocument` with stable identity, schema version, title, description, tags
+   - node coordinates, dimensions, and field selections
+   - edge metadata and semantic labels (join fields, join direction, cardinality)
+   - selection snapshot (active node/edge, multiselect hints)
+2. Add deterministic normalization + validation contracts for the domain model:
+   - alias uniqueness and collision handling
+   - position and size normalization
+   - edge endpoint/column existence validation
+3. Add a small projection helper for canvas-to-SQL preview state (not just execution).
 
 Tests first:
-- `canvas_model_contract_test`
+- `canvas_document_contract_test`
+- `canvas_layout_roundtrip_contract_test` (expanded for node/edge metadata)
+- `canvas_selection_contract_test`
+- `canvas_projection_contract_test`
+
+Status: contract coverage started and in-progress work completed for:
+- `canvas_document_contract_test`
 - `canvas_layout_roundtrip_contract_test`
-- `canvas_to_sql_contract_test`
+- canvas normalization and edge-join validation in `internal/query/canvas_model.go`
+- `canvas_selection_contract_test`
+- `canvas_projection_contract_test`
+
+#### 5.1 — Canvas persistence and artifact API
+
+Tasks:
+1. Add canvas repository methods needed for editing loops:
+   - `GetByID`, `FindByName`, `Update`, `Upsert`, `Delete`
+   - optional optimistic concurrency via version/timestamp checks
+2. Add a dedicated artifact service facade for canvas writes:
+   - normalize + validate before save
+   - persist `spec_json` and metadata
+   - expose `ListByKind`, `GetForExecution`, and `History` helpers
+3. Add migration-safe `canvases` metadata columns for versioning and source references.
+
+Tests first:
+- `canvas_repository_contract_test`
+- `canvas_artifact_contract_test`
+- `canvas_service_contract_test`
+
+Status:
+- `canvas_repository_contract_test` added with `GetByID`, `ListByKind`, `Update`, and `Upsert` contracts.
+- `internal/catalog/canvas.go` now implements those repository methods and stores `version/source_ref/updated_at`.
+- `internal/db` migration path upgrades canvas metadata from schema `1.0.0` to `1.1.0`.
+- `internal/canvasservice` provides artifact-facing behavior:
+  - draft create
+  - versioned rename/save/delete
+  - normalized `\canvas save`
+  - `GetForExecution`, `ListByKind`, `History`
+- `canvas_artifact_contract_test`
+- `canvas_service_contract_test`
+
+Next slice to execute:
+1. Add canvas edit lifecycle contracts for in-place mutation (drag/drop, field selection, and edge edits).
+2. Add shell-facing state refresh after mutation commands.
+3. Add draft live-preview contracts for SQL updates.
+
+#### 5.2 — Workspace UI for canvas browsing/editing
+
+Tasks:
+1. Promote the canvas viewport from read-only scaffold to full workspace surface:
+   - canvas list + active canvas selector from shell projection
+   - save/load/revert state controls
+   - status and validation banner (warnings/errors)
+2. Add object palette in GTK:
+   - table node creation
+   - field pick list
+   - quick edge/join creation action
+3. Add non-drag interactions first (selection, delete, clear, rename, run, copy SQL preview, open related).
+
+Tests first:
+- `shell_canvas_panel_contract_test`
+- `shell_canvas_toolbar_contract_test`
+- `canvas_panel_shortcuts_contract_test`
+
+#### 5.3 — Drag-and-drop and interaction engine
+
+Tasks:
+1. Add pointer-driven move/select model for nodes and fields.
+2. Add edge drawing and attach workflow:
+   - source/target selection
+   - join-column picker
+   - join-type chooser
+3. Add canvas command model hooks:
+   - `\canvas` execution by name already implemented in terminal
+   - add `\canvas save|rename|delete` and `\canvas new` skeletons (contract-first)
+4. Persist intermediate edits as draft/autosave snapshots.
+
+Tests first:
+- `canvas_drag_drop_contract_test`
+- `canvas_edge_edit_contract_test`
+- `canvas_command_contract_test`
+
+Status:
+- `canvas_drag_drop_contract_test` and `canvas_edge_edit_contract_test` are green.
+- `canvas_command_contract_test` is now added and green, covering service-availability and malformed-command contracts for terminal canvas lifecycle commands.
+
+#### 5.4 — SQL preview and execution feedback loop
+
+Tasks:
+1. Add live `sql_preview` projection from `\canvas` document mutations.
+2. Execute preview safely with:
+   - deterministic quoting and limit defaulting
+   - error capture with source mapping to canvas nodes/edges where possible
+3. Add result surface in shell viewport:
+   - SQL generated preview pane
+   - parameter list and estimate hints
+   - rerun + cancel actions
+
+Tests first:
+- `canvas_sql_preview_contract_test`
+- `canvas_execution_feedback_contract_test`
+- `terminal_canvas_contract_test` (expanded for refresh behavior)
+
+Current status: complete.
+- Added contract coverage for active-canvas SQL previews, mutation refresh behavior, and malformed-spec safety.
+- Added execution-feedback contracts for preview failures and terminal `\canvas` runs with deterministic error mapping.
+- Verified shell model projection reflects live draft changes and run/readiness states.
+
+### 5.5 — UI and user-flow polish
+
+Goal: close remaining usability gaps from interactive editing.
+
+Planned tasks:
+1. Re-evaluate status/validation surfacing for save/revert/new/delete.
+2. Tighten default startup ergonomics (including console visibility defaults and initial focus choices).
+3. Final review pass on interaction keyboard shortcuts and feedback text.
+
+Status:
+- Canvas viewport interactions, node/edge editing actions, and preview updates are implemented.
+- Shortcut wiring and command surface behavior are in place (including F12 console toggle).
+- `\canvas new` status surfacing now updates `CanvasStatus` for both terminal command and action flows (`canvas created: <name>`), with contract coverage in appstate and shell model tests.
+
+### Proposed Phase 5 completion gate
+
+- All Phase 5 contracts pass with stable results for:
+  - create/edit/save/load canvas
+  - live SQL preview generation
+  - drag/drop node/edge editing
+  - execute/save/inspect roundtrip through terminal command path.
+
+Completion signals before Phase 6:
+1. No terminal-only route for core canvas workflows; canvas mutations happen in-shell with immediate SQL visibility.
+2. Explorer canvas open is execution-capable (already completed) and no longer scaffold-only.
+3. At least one “open project → create canvas → edit → run → persist → reopen” E2E scenario is contract-tested and green.
 
 ### Phase 6 — `.qdb` artifacts and migrations
 
@@ -200,10 +365,10 @@ Goal: package all report/query/canvas artifacts in a robust portable format.
 
 Tasks:
 1. Finalize artifact schema for:
-   - canvas
-   - charts
-   - reports
-   - macro/action steps
+	- canvas
+	- charts
+	- reports
+	- macro/action steps
 2. Add schema-versioned artifact migration.
 3. Implement conflict resolution rules for duplicate IDs and stale manifests.
 4. Add export/import utility with integrity checks.
@@ -213,6 +378,15 @@ Tests first:
 - `artifact_id_collision_contract_test`
 - `artifact_pack_unpack_contract_test`
 - `qdb_backward_compat_contract_test`
+
+Current status:
+- We started with `artifact_schema_contract_test` and the following Phase 6 contracts are now implemented:
+  - `ArtifactKind` enum/validation
+  - canonical manifest path construction
+  - phase-1 artifact spec shape (`ArtifactSpecV1`) with validation
+  - artifact path collision detection and canonical-path stability
+  - kinded artifact pack/unpack roundtrip
+  - manifest migration during `.qdb` open for backward compatibility
 
 ### Phase 7 — MCP control plane (agent-friendly)
 
@@ -234,6 +408,16 @@ Tests first:
 - `mcp_event_stream_contract_test`
 - `mcp_error_surface_contract_test`
 
+Current status:
+
+- MCP phase-7 contracts are implemented and passing.
+- In-package MCP core currently provides:
+  - tool registration + deterministic listing
+  - authorization checks and allowlist behavior
+  - event streaming for tool call start/success/failure
+  - consistent error codes for unknown tool, unauthorized, missing request, invalid args, and handler failures
+- Transport hookup with the Go MCP SDK and stdio CLI entrypoint are now implemented.
+
 ### Phase 8 — Vector workflows
 
 Goal: make vectors easy and transparent for AI workflows.
@@ -249,6 +433,18 @@ Tests first:
 - `vector_dimensionality_contract_test`
 - `vector_similarity_contract_test`
 - `vector_reindex_contract_test`
+
+Current status:
+- Vector field metadata model and catalog persistence are now implemented and stable:
+  - `internal/vector` has metadata model canonicalization, search primitives, and stale-index logic contracts.
+  - `internal/catalog` has full vector-field CRUD (`Create`, `GetByID`, `List`, `Upsert`, `Delete`) with contract coverage.
+  - DB bootstrap/migration now includes `quackcess_vector_fields`.
+- Phase 8 is green through metadata/search primitives.
+- Next slice: provider-agnostic embedding execution/service contracts and vector build/rebuild workflow.
+
+- Delivered slice:
+  - Added provider-agnostic embedding orchestration (`EmbeddingProviderRegistry`, `VectorBuildService`) with contract tests in `internal/vector/orchestration_contract_test.go`.
+  - Added MCP exposure for vector field discovery (`vector.list`) and wired it into CLI MCP bootstrap (`cmd/quackcess/main.go`), keeping vector metadata first-class for agent workflows.
 
 ### Phase 9 — Charts/reports layer
 
@@ -266,6 +462,13 @@ Tests first:
 - `report_render_contract_test`
 - `export_contract_test`
 
+Current status:
+- `internal/report` foundation is in place with schema, parse/canonicalize/marshal helpers.
+- `chart_spec_contract_test` and `report_composition_contract_test` are implemented and passing.
+- `report_render_contract_test` and `export_contract_test` are implemented and passing.
+- Added: project-facing binding in `internal/project` now resolves chart/report artifacts from `.qdb`, loads their specs, and resolves report render plans.
+- Added: project-facing `LoadReportExport` contract to generate deterministic export payloads (CSV + image placeholders) from report artifacts and per-chart row data.
+
 ### Phase 10 — Hardening and release readiness
 
 Goal: production-grade reliability and maintainability.
@@ -280,6 +483,18 @@ Tests first:
 - `corruption_recovery_contract_test`
 - `permission_matrix_contract_test`
 - `performance_budget_contract_test`
+- `packaging_workflow_contract_test` (via `internal/packaging` checks)
+- release artifact workflow contract (via `.github/workflows/release.yml`)
+
+Phase 10 status:
+- Completed:
+  - `corruption_recovery_contract_test`
+  - `permission_matrix_contract_test`
+  - `mcp` now accepts `--permission-matrix` and loads a JSON principal/tool allowlist.
+  - denied MCP calls emit `mcp.call.denied` audit events.
+  - `performance_budget_contract_test` (CLI cold-start, large query latency, shell responsiveness budgets).
+  - cross-platform packaging checks (CI matrix + workflow contract in `internal/packaging`).
+  - release artifact workflow (Linux/macOS tar.gz + checksums upload to GitHub release).
 
 ## 5b) Decomposition by dependency (execution order)
 
@@ -369,7 +584,7 @@ These are intentionally deferred until after core loop stabilizes.
 ## 8) Immediate assumptions / open items (resolve before coding phase 1.2)
 
 1. MCP transport is resolved for phase 1: **stdio + optional streamable HTTP**.
-2. Vector provider default is deferred; no hardcoded provider.
+2. Vector provider default is enabled for local-first run: `qwen-cpu` + `qwen3-embedding-0.6b` with HTTP override support via `QUACKCESS_VECTOR_BACKEND=http` and a llama.cpp convenience alias via `QUACKCESS_VECTOR_BACKEND=llama`/`llamacpp`.
 3. Authentication model resolved:
    - stdio: process-local transport, no external auth required.
    - streamable HTTP: localhost bind by default, optional token auth for non-local access.
@@ -389,7 +604,7 @@ These are intentionally deferred until after core loop stabilizes.
 ### Platform and provider constraints (now decided)
 
 - OS targets: **Linux and macOS**.
-- Vector provider: no hard default in v1; require explicit local embedding provider config (e.g., Ollama/qwen3.5-0.8b).
+- Vector provider: default local profile enabled (`qwen-cpu` + `qwen3-embedding-0.6b`) with env override support and optional local llama-compatible profile (`llamacpp`, `qwen-cpp`, `qwen3-embedding-0.6b`).
 - Artifact IDs: **ULID** for deterministic, URL-safe, sortable identifiers.
 
 ### Artifact strategy (recommended)
