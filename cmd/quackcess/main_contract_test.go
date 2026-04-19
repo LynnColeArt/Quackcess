@@ -204,6 +204,18 @@ func TestOpenProjectRunsDBBootstrap(t *testing.T) {
 	}
 }
 
+func TestInitWithoutSeedDBCanOpenProject(t *testing.T) {
+	tmp := t.TempDir()
+	projectPath := filepath.Join(tmp, "boot-default-db.qdb")
+
+	if err := run([]string{"init", "--skip-vector-setup", "--name", "BootNoSeed", projectPath}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := run([]string{"open", "--no-ui", projectPath}); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+}
+
 func TestOpenDefaultsToUiModeInvokesShellWindow(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := createBootstrapDb(t, filepath.Join(tmp, "seed.duckdb"))

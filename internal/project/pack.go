@@ -3,6 +3,7 @@ package project
 import (
 	"archive/zip"
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	_ "github.com/marcboeker/go-duckdb"
 )
 
 const (
@@ -64,6 +67,11 @@ func Create(path string, options CreateOptions) error {
 		if err != nil {
 			return fmt.Errorf("read database source: %w", err)
 		}
+	} else {
+		dbBytes, err = createEmptyDuckDBBytes()
+		if err != nil {
+			return fmt.Errorf("initialize embedded database: %w", err)
+		}
 	}
 
 	index, err := BuildArtifactIndex(manifest.ArtifactRoot, options.Artifacts)
@@ -109,6 +117,38 @@ func Create(path string, options CreateOptions) error {
 		}
 		return nil
 	})
+}
+
+func createEmptyDuckDBBytes() ([]byte, error) {
+	tmp, err := os.CreateTemp("", "quackcess-project-*.duckdb")
+	if err != nil {
+		return nil, err
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return nil, err
+	}
+	if err := os.Remove(tmpName); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	defer func() {
+		_ = os.Remove(tmpName)
+	}()
+
+	sqlDB, err := sql.Open("duckdb", tmpName)
+	if err != nil {
+		return nil, err
+	}
+	if err := sqlDB.Ping(); err != nil {
+		_ = sqlDB.Close()
+		return nil, err
+	}
+	if err := sqlDB.Close(); err != nil {
+		return nil, err
+	}
+
+	return os.ReadFile(tmpName)
 }
 
 // Open reads a .qdb archive into Project metadata.
