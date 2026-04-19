@@ -27,6 +27,92 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestRunWithoutArgsCreatesAndOpensDefaultWorkspace(t *testing.T) {
+	tmp := t.TempDir()
+	workspacePath := filepath.Join(tmp, "desktop-default.qdb")
+	t.Setenv(defaultWorkspacePathEnv, workspacePath)
+
+	installCalls := 0
+	oldInstall := runInstallFn
+	runInstallFn = func(args []string) error {
+		installCalls++
+		return nil
+	}
+	defer func() {
+		runInstallFn = oldInstall
+	}()
+
+	called := false
+	oldRunner := runShellWindowFn
+	runShellWindowFn = func(*db.DB, *project.Project) error {
+		called = true
+		return nil
+	}
+	defer func() {
+		runShellWindowFn = oldRunner
+	}()
+
+	output, err := captureStdout(func() error {
+		return run([]string{})
+	})
+	if err != nil {
+		t.Fatalf("run without args: %v", err)
+	}
+	if !called {
+		t.Fatal("expected shell window runner to be invoked")
+	}
+	if installCalls != 0 {
+		t.Fatalf("expected default launch to skip vector install, got %d calls", installCalls)
+	}
+	if strings.TrimSpace(output) != "open mode: ui" {
+		t.Fatalf("unexpected output: %q", output)
+	}
+	if _, err := os.Stat(workspacePath); err != nil {
+		t.Fatalf("expected workspace to be created: %v", err)
+	}
+}
+
+func TestRunWithoutArgsUsesExistingDefaultWorkspace(t *testing.T) {
+	tmp := t.TempDir()
+	workspacePath := filepath.Join(tmp, "desktop-existing.qdb")
+	t.Setenv(defaultWorkspacePathEnv, workspacePath)
+
+	if err := run([]string{"init", "--skip-vector-setup", "--name", "ExistingWorkspace", workspacePath}); err != nil {
+		t.Fatalf("init existing workspace: %v", err)
+	}
+
+	called := false
+	oldRunner := runShellWindowFn
+	runShellWindowFn = func(*db.DB, *project.Project) error {
+		called = true
+		return nil
+	}
+	defer func() {
+		runShellWindowFn = oldRunner
+	}()
+
+	output, err := captureStdout(func() error {
+		return run([]string{})
+	})
+	if err != nil {
+		t.Fatalf("run without args: %v", err)
+	}
+	if !called {
+		t.Fatal("expected shell window runner to be invoked")
+	}
+	if strings.TrimSpace(output) != "open mode: ui" {
+		t.Fatalf("unexpected output: %q", output)
+	}
+
+	p, err := project.Open(workspacePath)
+	if err != nil {
+		t.Fatalf("open workspace: %v", err)
+	}
+	if p.Manifest.ProjectName != "ExistingWorkspace" {
+		t.Fatalf("workspace should not be recreated; name=%q", p.Manifest.ProjectName)
+	}
+}
+
 func TestRunMCPRequiresProjectPath(t *testing.T) {
 	if err := run([]string{"mcp"}); err == nil {
 		t.Fatal("expected error")

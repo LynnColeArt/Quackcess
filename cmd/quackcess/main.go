@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -38,9 +39,11 @@ var (
 	errEmbeddingDownloadUnsupported = errors.New("provider does not expose model download endpoint")
 )
 
+const defaultWorkspacePathEnv = "QUACKCESS_WORKSPACE_PATH"
+
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("expected command: init, open, mcp, info, install")
+		return runDefaultWorkspaceLaunch()
 	}
 
 	switch args[0] {
@@ -57,6 +60,51 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
+}
+
+func runDefaultWorkspaceLaunch() error {
+	workspacePath, err := defaultWorkspacePath()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(workspacePath) == "" {
+		return fmt.Errorf("default workspace path is empty")
+	}
+
+	workspaceDir := filepath.Dir(workspacePath)
+	if workspaceDir != "" && workspaceDir != "." {
+		if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+			return err
+		}
+	}
+
+	if _, err := os.Stat(workspacePath); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		name := strings.TrimSuffix(filepath.Base(workspacePath), filepath.Ext(workspacePath))
+		if strings.TrimSpace(name) == "" || name == "." {
+			name = "workspace"
+		}
+		if err := runInit([]string{"--skip-vector-setup", "--name", name, workspacePath}); err != nil {
+			return err
+		}
+	}
+
+	return runOpen([]string{workspacePath})
+}
+
+func defaultWorkspacePath() (string, error) {
+	customPath := strings.TrimSpace(os.Getenv(defaultWorkspacePathEnv))
+	if customPath != "" {
+		return customPath, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".quackcess", "workspace.qdb"), nil
 }
 
 func main() {
